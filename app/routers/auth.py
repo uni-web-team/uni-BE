@@ -1,6 +1,9 @@
 from datetime import datetime, timedelta
+from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException, status
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import RedirectResponse
 from jose import jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
@@ -52,3 +55,65 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
 @router.get("/me", response_model=UserResponse)
 def me(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.get("/kakao")
+def kakao_login():
+    kakao_auth_url = "https://kauth.kakao.com/oauth/authorize"
+    params = {
+        "client_id": settings.kakao_client_id,
+        "redirect_uri": settings.kakao_redirect_uri,
+        "response_type": "code"
+    }
+    return RedirectResponse(url=f"{kakao_auth_url}?{urlencode(params)}")
+
+
+@router.get("/kakao/callback")
+async def kakao_callback(code: str = Query(...), db: Session = Depends(get_db)):
+    async with httpx.AsyncClient() as client:
+        token_response = await client.post(
+            "https://kauth.kakao.com/oauth/token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": settings.kakao_client_id,
+                "redirect_uri": settings.kakao_redirect_uri,
+                "code": code
+            }
+        )
+
+        if token_response.status_code != 200:
+            raise HTTPException(status_code=400, detail="카카오 인증 실패")
+
+        token_data = token_response.json()
+        access_token = token_data.get("access_token")
+
+        user_response = await client.get(
+            "https://kapi.kakao.com/v2/user/me",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+
+        if user_response.status_code != 200:
+            raise HTTPException(status_code=400, detail="사용자 정보 조회 실패")
+
+        user_data = user_response.json()
+        kakao_id = str(user_data.get("id"))
+        email = user_data.get("kakao_account", {}).get("email")
+
+        if not email:
+            raise HTTPException(status_code=400, detail="이메일 동의가 필요합니다")
+
+        user = db.query(User).filter(User.provider == "kakao", User.social_id == kakao_id).first()
+        if not user:
+            user = db.query(User).filter(User.email == email).first()
+            if user:
+                user.provider = "kakao"
+                user.social_id = kakao_id
+            else:
+                user = User(email=email, provider="kakao", social_id=kakao_id)
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+
+        jwt_token = create_token(user.id)
+        redirect_url = f"https://www.uni-us.site?token={jwt_token}&email={user.email}"
+        return RedirectResponse(url=redirect_url)

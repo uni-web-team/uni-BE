@@ -35,6 +35,8 @@ def create_token(user_id: int) -> str:
 def register(body: RegisterRequest, db: Session = Depends(get_db)):
     if len(body.password) < 8:
         raise HTTPException(status_code=400, detail="비밀번호는 8자 이상이어야 해요")
+    if len(body.password) > 72:
+        raise HTTPException(status_code=400, detail="비밀번호는 72자 이하여야 해요")
     if db.query(User).filter(User.email == body.email).first():
         raise HTTPException(status_code=409, detail="이미 사용 중인 이메일이에요")
     user = User(email=body.email, password_hash=hash_password(body.password))

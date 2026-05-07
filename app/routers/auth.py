@@ -78,6 +78,7 @@ async def kakao_callback(code: str = Query(...), db: Session = Depends(get_db)):
             data={
                 "grant_type": "authorization_code",
                 "client_id": settings.kakao_client_id,
+                "client_secret": settings.kakao_client_secret,
                 "redirect_uri": settings.kakao_redirect_uri,
                 "code": code
             }

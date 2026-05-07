@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 10080
     admin_key: str = "uni-admin-2026"
     kakao_client_id: str = ""
+    kakao_client_secret: str = ""
     kakao_redirect_uri: str = ""
     google_client_id: str = ""
     google_client_secret: str = ""

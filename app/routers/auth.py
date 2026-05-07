@@ -84,7 +84,9 @@ async def kakao_callback(code: str = Query(...), db: Session = Depends(get_db)):
         )
 
         if token_response.status_code != 200:
-            raise HTTPException(status_code=400, detail="카카오 인증 실패")
+            error_detail = token_response.text
+            print(f"Kakao token error: {token_response.status_code} - {error_detail}")
+            raise HTTPException(status_code=400, detail=f"카카오 인증 실패: {error_detail}")
 
         token_data = token_response.json()
         access_token = token_data.get("access_token")

@@ -119,3 +119,67 @@ async def kakao_callback(code: str = Query(...), db: Session = Depends(get_db)):
         jwt_token = create_token(user.id)
         redirect_url = f"https://www.uni-us.site?token={jwt_token}&email={user.email}"
         return RedirectResponse(url=redirect_url)
+
+
+@router.get("/google")
+def google_login():
+    google_auth_url = "https://accounts.google.com/o/oauth2/v2/auth"
+    params = {
+        "client_id": settings.google_client_id,
+        "redirect_uri": settings.google_redirect_uri,
+        "response_type": "code",
+        "scope": "openid email profile"
+    }
+    return RedirectResponse(url=f"{google_auth_url}?{urlencode(params)}")
+
+
+@router.get("/google/callback")
+async def google_callback(code: str = Query(...), db: Session = Depends(get_db)):
+    async with httpx.AsyncClient() as client:
+        token_response = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": settings.google_client_id,
+                "client_secret": settings.google_client_secret,
+                "redirect_uri": settings.google_redirect_uri,
+                "code": code
+            }
+        )
+
+        if token_response.status_code != 200:
+            raise HTTPException(status_code=400, detail="구글 인증 실패")
+
+        token_data = token_response.json()
+        access_token = token_data.get("access_token")
+
+        user_response = await client.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+
+        if user_response.status_code != 200:
+            raise HTTPException(status_code=400, detail="사용자 정보 조회 실패")
+
+        user_data = user_response.json()
+        google_id = str(user_data.get("id"))
+        email = user_data.get("email")
+
+        if not email:
+            raise HTTPException(status_code=400, detail="이메일 정보가 필요합니다")
+
+        user = db.query(User).filter(User.provider == "google", User.social_id == google_id).first()
+        if not user:
+            user = db.query(User).filter(User.email == email).first()
+            if user:
+                user.provider = "google"
+                user.social_id = google_id
+            else:
+                user = User(email=email, provider="google", social_id=google_id)
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+
+        jwt_token = create_token(user.id)
+        redirect_url = f"https://www.uni-us.site?token={jwt_token}&email={user.email}"
+        return RedirectResponse(url=redirect_url)
